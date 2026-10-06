@@ -17,6 +17,8 @@ QUERY_TABLE = f"{SCHEMA}.GSC_QUERY_DAILY_AGG"
 
 # acute_chronic has mixed casing in the source (ACUTE/acute/Acute) and NULLs
 AC_EXPR = "COALESCE(UPPER(TRIM(acute_chronic)), '(BLANK)')"
+# generic_branded comes from MEDICINE_MASTER (Branded / Generic); NULL for pages that are not a medicine
+GB_EXPR = "COALESCE(UPPER(TRIM(generic_branded)), '(BLANK)')"
 
 
 def _config() -> dict:

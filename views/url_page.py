@@ -48,6 +48,9 @@ daily = run_query(
     params,
 )
 daily["data_date"] = pd.to_datetime(daily["data_date"])
+for col in ("clicks", "impressions", "sp"):
+    daily[col] = pd.to_numeric(daily[col])
+daily["avg_position"] = daily["sp"] / daily["impressions"].where(daily["impressions"] > 0) + 1
 cur = daily[(daily["data_date"].dt.date >= start)]
 prv = daily[(daily["data_date"].dt.date <= prev_end)]
 
@@ -116,14 +119,14 @@ paged_table(
 )
 
 
-def trend(df, y, title):
+def trend(df, y, title, zero=True):
     chart = (
         alt.Chart(df)
         .mark_line(point=True)
         .encode(
             x=alt.X("data_date:T", title="Date"),
-            y=alt.Y(f"{y}:Q", title=title),
-            tooltip=["data_date:T", alt.Tooltip(f"{y}:Q", format=",")],
+            y=alt.Y(f"{y}:Q", title=title, scale=alt.Scale(zero=zero)),
+            tooltip=["data_date:T", alt.Tooltip(f"{y}:Q", format=",.2f" if y == "avg_position" else ",")],
         )
         .properties(height=320)
     )
@@ -134,3 +137,5 @@ st.subheader("Clicks wrt Date")
 trend(cur, "clicks", "Clicks")
 st.subheader("Impressions wrt Date")
 trend(cur, "impressions", "Impressions")
+st.subheader("Avg Position wrt Date")
+trend(cur, "avg_position", "Avg Position", zero=False)
