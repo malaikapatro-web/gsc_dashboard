@@ -24,6 +24,14 @@ streamlit run app.py
 
 Credentials live only in the Community Cloud Secrets box. They are never stored in this repo.
 
+## Password gate
+
+Before anything loads, viewers must enter the password stored in Secrets as `app_password` (top-level key, above
+the `[snowflake]` table). Until then the app runs no Snowflake query and shows no data. If `app_password` is missing the
+app stays locked instead of opening. After 5 wrong guesses a browser session is locked for 5 minutes. To change the
+password, edit it in the app's Secrets and save; everyone is asked again on their next visit. The password is checked
+inside the app, so it protects the data but the login page itself is still reachable by anyone with the link.
+
 ## Authentication: Snowflake key pair
 
 The app logs in with an RSA key pair. The public key must be registered on the Snowflake user

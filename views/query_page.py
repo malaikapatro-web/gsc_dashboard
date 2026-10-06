@@ -20,6 +20,11 @@ with st.sidebar:
     search = st.text_input("Query contains", placeholder="e.g. dolo 650", key="q_search")
     hide_short = st.checkbox("Hide queries shorter than 4 characters", value=False,
                              help="The original Power BI table hid these. Off here so no query is dropped.")
+    group_tail = st.checkbox(
+        "Group queries under 10 impressions as Long-tail", value=False, key="q_tail",
+        help="Same rule as the Power BI report: a query with fewer than 10 total impressions across all loaded "
+             "days is shown as 'Long-tail (low volume)' (one row per bucket). Totals do not change.",
+    )
     st.caption(f"Data available {min_d} to {max_d}")
 
 if len(date_range) != 2:
@@ -28,24 +33,40 @@ if len(date_range) != 2:
 start, end = date_range
 
 
-def where(params: dict) -> str:
+def where(params: dict, p: str = "") -> str:
+    """Filter clauses; p is a table alias prefix such as 'd.' so column names never clash with SELECT aliases."""
     sql = ""
     if buckets:
-        sql += " AND " + in_clause("bucket", buckets, params, "b")
+        sql += " AND " + in_clause(f"{p}bucket", buckets, params, "b")
     if search:
         params["q"] = f"%{search.strip()}%"
-        sql += " AND query ILIKE %(q)s"
+        sql += f" AND {p}query ILIKE %(q)s"
     return sql
 
+
+TAIL_LABEL = "Long-tail (low volume)"
+if group_tail:
+    # Same rule as the pipeline: total impressions per query over every loaded day, threshold 10.
+    qvol = materialize(
+        "QVOL",
+        f"""SELECT query AS vq, SUM(impressions) AS total_impressions
+            FROM {DETAIL_TABLE} WHERE query IS NOT NULL GROUP BY query""",
+    )
+    QUERY_EXPR = (f"CASE WHEN d.query IS NULL THEN '(anonymized queries)' "
+                  f"WHEN v.total_impressions >= 10 THEN d.query ELSE '{TAIL_LABEL}' END")
+    SOURCE = f"{DETAIL_TABLE} d LEFT JOIN {qvol} v ON d.query = v.vq"
+else:
+    QUERY_EXPR = "COALESCE(d.query, '(anonymized queries)')"
+    SOURCE = f"{DETAIL_TABLE} d"
 
 # Base: one row per (query, bucket). Anonymized queries (no text in GSC) are kept as one labelled row.
 bp = {"s": start, "e": end}
 base = materialize(
     "QBASE",
-    f"""SELECT COALESCE(query, '(anonymized queries)') AS query, bucket, brand_non_brand,
-               SUM(clicks) AS clicks, SUM(impressions) AS impressions, SUM(sum_position) AS sum_position
-        FROM {DETAIL_TABLE}
-        WHERE data_date BETWEEN %(s)s AND %(e)s {where(bp)}
+    f"""SELECT {QUERY_EXPR} AS query, d.bucket AS bucket, d.brand_non_brand AS brand_non_brand,
+               SUM(d.clicks) AS clicks, SUM(d.impressions) AS impressions, SUM(d.sum_position) AS sum_position
+        FROM {SOURCE}
+        WHERE d.data_date BETWEEN %(s)s AND %(e)s {where(bp, "d.")}
         GROUP BY 1, 2, 3""",
     bp,
 )
@@ -87,10 +108,11 @@ else:
         gp = {"s": start, "e": end}
         gbase = materialize(
             "QGB",
-            f"""SELECT COALESCE(query, '(anonymized queries)') AS query, {GB_EXPR} AS gb,
-                       SUM(clicks) AS clicks, SUM(impressions) AS impressions, SUM(sum_position) AS sum_position
-                FROM {DETAIL_TABLE}
-                WHERE data_date BETWEEN %(s)s AND %(e)s {where(gp)}
+            f"""SELECT {QUERY_EXPR} AS query, {GB_EXPR} AS gb,
+                       SUM(d.clicks) AS clicks, SUM(d.impressions) AS impressions,
+                       SUM(d.sum_position) AS sum_position
+                FROM {SOURCE}
+                WHERE d.data_date BETWEEN %(s)s AND %(e)s {where(gp, "d.")}
                 GROUP BY 1, 2""",
             gp,
         )
